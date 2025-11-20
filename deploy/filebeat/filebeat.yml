@@ -1,0 +1,27 @@
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: true
+      templates:
+        - condition:
+            equals:
+              docker.container.labels.co\.elastic\.logs/module: orders
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*-json.log
+
+processors:
+  - add_docker_metadata: ~
+  - add_host_metadata: ~
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+setup.kibana:
+  host: "kibana:5601"
+
+setup.template.enabled: true
+setup.template.name: "orders"
+setup.template.pattern: "orders-*"
+setup.ilm.enabled: false
