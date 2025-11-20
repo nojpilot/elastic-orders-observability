@@ -51,27 +51,47 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    if: >
-      github.ref == 'refs/heads/main' &&
-      secrets.DEPLOY_HOST != '' &&
-      secrets.DEPLOY_USER != '' &&
-      secrets.DEPLOY_KEY != '' &&
-      secrets.ELASTICSEARCH_URL != '' &&
-      secrets.ALERT_WEBHOOK != ''
+    if: github.ref == 'refs/heads/main'
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
+      ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check deploy secrets
+        id: secrets_ready
+        run: |
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY ELASTICSEARCH_URL ALERT_WEBHOOK; do
+            if [ -z "${!name}" ]; then
+              echo "Missing secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy via SSH
+        if: steps.secrets_ready.outputs.deploy == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ env.DEPLOY_KEY }}
           script: |
             cd /opt/devops-lab
             docker compose pull orders-api
             docker compose up -d orders-api
       - name: Run log-based alert
+        if: steps.secrets_ready.outputs.deploy == 'true'
         env:
-          ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
-          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+          ELASTICSEARCH_URL: ${{ env.ELASTICSEARCH_URL }}
+          ALERT_WEBHOOK: ${{ env.ALERT_WEBHOOK }}
         run: python scripts/error_alert.py
+      - name: Skip deploy (secrets missing)
+        if: steps.secrets_ready.outputs.deploy != 'true'
+        run: echo "Skipping deploy because required secrets are not set."
